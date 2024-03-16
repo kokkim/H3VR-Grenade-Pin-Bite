@@ -12,7 +12,8 @@ namespace GrenadePinBite
 	[BepInProcess("h3vr.exe")]
 	public class GrenadePinBite : BaseUnityPlugin
 	{
-		//TODO: FIX MULTI-PIN GRENADES
+		//TODO: ADD OPTIONAL TRIGGER PULL REQUIREMENT
+		//		CHANGE UP ACCESSIBILITY OPTIONS TO ACCOMMODATE
 
 		private const string ASSET_BUNDLE_NAME = "grenadepinbite";
 		GameObject toothPrefab;
@@ -22,12 +23,11 @@ namespace GrenadePinBite
 		public static ConfigEntry<float> forceRequiredForPull;
 		public static ConfigEntry<float> pinPullToothChance;
 
-		bool isPinInMouth;	//true if pin is loose inside mouth, already pulled off the grenade
-		PinnedGrenadeRing? curBittenRing;	//The currently bitten ring still attached to a grenade
-		FVRPhysicalObject? pinInMouth;  //loose pin inside mouth, not attached to a grenade
+
+		FVRPhysicalObject? loosePinInMouth;  //loose pin inside mouth, not attached to a grenade
 
 		Vector3 prevFramePinPos = new();
-		float timeUntilSpitOut = 0.5f;
+		float prevFramePinMouthDistance = new();
 
 		public GrenadePinBite()
 		{
@@ -56,12 +56,12 @@ namespace GrenadePinBite
 
 			forceRequiredForPull = Config.Bind("Pin Bite Settings",
 											   "Force Required For Pull",
-											   0.01f,
+											   1.1f,
 											   "How fast the grenade needs to be moved from the mouth for its pin to be considered bitten");
 
 			pinPullToothChance = Config.Bind("Pin Bite Settings",
 											 "Pin Pull Accident Probability (1 is 100%)",
-											 0.025f,
+											 0.02f,
 											 "After all, those pins are held in there awfully tight...");
 		}
 
@@ -80,66 +80,46 @@ namespace GrenadePinBite
 					break;
 				}
 			}
+
 			if (curRing != null)
 			{
 				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
-				//bite onto pin if not already biting a different pin
-				if (Vector3.Distance(curRing.transform.position, mouthPos) < biteRadius.Value)
-				{
-					if (!isPinInMouth)
-					{
-						curBittenRing = curRing;
-						isPinInMouth = true;
-					}
 
-					if (Vector3.Distance(curRing.transform.position, prevFramePinPos) > forceRequiredForPull.Value)
+				float curPinMouthDistance = Vector3.Distance(curRing.transform.position, mouthPos);
+				if (curPinMouthDistance < biteRadius.Value)
+                {
+					//checks if the hand is moving fast enough away from the mouth
+					if (prevFramePinPos != Vector3.zero && Vector3.Distance(curRing.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
 					{
 						//pin bitten and grenade pulled away from mouth, release pin
-						if (curRing == curBittenRing && !curBittenRing.HasPinDetached())
+						if (!curRing.HasPinDetached() && loosePinInMouth == null)
 						{
-							BiteOutPin(curBittenRing);
+							hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);	//haptic feedback
+							BiteOutPin(curRing);
+							Invoke("SpitOutPin", UnityEngine.Random.Range(0.4f, 0.6f));
 
 							//tooth easter egg
-							if (pinPullToothChance.Value > 0f)
+							if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
 							{
-								if (UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
-								{
-									//spit out tooth
-									SpitOutTooth(mouthPos);
-								}
+								SpitOutTooth(mouthPos);
 							}
 						}
 					}
 				}
-				else if (isPinInMouth && pinInMouth == null)
-				{
-					isPinInMouth = false;
-					curBittenRing = null;
-				}
-
 				prevFramePinPos = curRing.transform.position;
+				prevFramePinMouthDistance = curPinMouthDistance;
 			}
-			//count down to spitting out the pin
-            if (isPinInMouth && timeUntilSpitOut > 0f)
-			{
-				timeUntilSpitOut -= Time.deltaTime;
-				if (timeUntilSpitOut <= 0f && pinInMouth != null)
-				{
-					SpitOutPin(pinInMouth);
-					timeUntilSpitOut = UnityEngine.Random.Range(0.4f, 0.6f);
-                }
-            }
         }
 
 		void BiteOutPin(PinnedGrenadeRing _ring)   //altered varsion of the DetachPin function in-game, separate to make manual pulls still possible
 		{
 			if (_ring.m_hasPinDetached)
 			{
+				Debug.LogError("Tried to pull an already pulled pin!");
 				return;
 			}
 
-			curBittenRing = null;
-			pinInMouth = _ring.Pin;
+			loosePinInMouth = _ring.Pin;
 
 			//disable gravity until pin is spat out
 			_ring.m_hasPinDetached = true;
@@ -156,20 +136,22 @@ namespace GrenadePinBite
 			_ring.enabled = false;
 		}
 
-		void SpitOutPin(FVRPhysicalObject _pin)
+		void SpitOutPin()
 		{
-			_pin.transform.SetParent(null);
-			_pin.RootRigidbody.isKinematic = false;
+			if (loosePinInMouth != null)
+			{
+				loosePinInMouth.transform.SetParent(null);
+				loosePinInMouth.RootRigidbody.isKinematic = false;
 
-			Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
-			SM.PlayGenericSound(AudEvent_Spit, mouthPos);
+				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
+				SM.PlayGenericSound(AudEvent_Spit, mouthPos);
 
-			Rigidbody rb = _pin.RootRigidbody;
-            rb.velocity = GM.CurrentPlayerBody.Head.forward * UnityEngine.Random.Range(1f, 2f) + UnityEngine.Random.onUnitSphere;
-			rb.angularVelocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1f, 5f);
+				Rigidbody rb = loosePinInMouth.RootRigidbody;
+				rb.velocity = GM.CurrentPlayerBody.Head.forward * UnityEngine.Random.Range(1f, 2f) + UnityEngine.Random.onUnitSphere;
+				rb.angularVelocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1f, 5f);
 
-			pinInMouth = null;
-			isPinInMouth = false;
+				loosePinInMouth = null;
+			}
 		}
 
 		void SpitOutTooth(Vector3 _mouthPos)
@@ -184,15 +166,14 @@ namespace GrenadePinBite
 			//no chuckle
 			SM.PlayBulletImpactHit(BulletImpactSoundType.Meat, _mouthPos, 0.7f, 0.8f);
 		}
+
 		private void GM_InitScene(On.FistVR.GM.orig_InitScene orig, GM self)
 		{
 			orig(self);
 
 			//reset all values
-			isPinInMouth = false;
-			curBittenRing = null;
-			pinInMouth = null;
-			timeUntilSpitOut = 0.5f;
+			loosePinInMouth = null;
+			prevFramePinPos = Vector3.zero;
 		}
 	}
 }
