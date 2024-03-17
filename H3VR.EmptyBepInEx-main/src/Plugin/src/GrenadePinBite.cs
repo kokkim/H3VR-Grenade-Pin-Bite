@@ -92,7 +92,7 @@ namespace GrenadePinBite
 					if (prevFramePinPos != Vector3.zero && Vector3.Distance(curRing.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
 					{
 						//pin bitten and grenade pulled away from mouth, release pin
-						if (!curRing.HasPinDetached() && loosePinInMouth == null)
+						if (!curRing.HasPinDetached() && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
 						{
 							hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);	//haptic feedback
 							BiteOutPin(curRing);
