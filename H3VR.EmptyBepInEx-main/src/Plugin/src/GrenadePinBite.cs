@@ -12,9 +12,6 @@ namespace GrenadePinBite
 	[BepInProcess("h3vr.exe")]
 	public class GrenadePinBite : BaseUnityPlugin
 	{
-		//TODO: ADD OPTIONAL TRIGGER PULL REQUIREMENT
-		//		CHANGE UP ACCESSIBILITY OPTIONS TO ACCOMMODATE
-
 		private const string ASSET_BUNDLE_NAME = "grenadepinbite";
 		GameObject toothPrefab;
 		AudioEvent AudEvent_Spit = new();
@@ -23,15 +20,16 @@ namespace GrenadePinBite
 		public static ConfigEntry<float> forceRequiredForPull;
 		public static ConfigEntry<float> pinPullToothChance;
 
-
 		FVRPhysicalObject? loosePinInMouth;  //loose pin inside mouth, not attached to a grenade
-
-		Vector3 prevFramePinPos = new();
-		float prevFramePinMouthDistance = new();
+		Vector3 leftPrevFramePinPos = new(), rightPrevFramePinPos = new();
+		float leftPrevFramePinMouthDistance = new(), rightPrevFramePinMouthDistance = new();
 
 		public GrenadePinBite()
 		{
 			On.FistVR.PinnedGrenade.UpdateInteraction += PinnedGrenade_UpdateInteraction;
+
+            On.FistVR.SosigWeaponPlayerInterface.UpdateInteraction += SosigWeaponPlayerInterface_UpdateInteraction;
+
 			On.FistVR.GM.InitScene += GM_InitScene;
 
 			//-----------------------------------------------------------
@@ -65,6 +63,7 @@ namespace GrenadePinBite
 											 "After all, those pins are held in there awfully tight...");
 		}
 
+        #region pinned grenades
         private void PinnedGrenade_UpdateInteraction(On.FistVR.PinnedGrenade.orig_UpdateInteraction orig, PinnedGrenade self, FVRViveHand hand)
         {
 			orig(self, hand);
@@ -84,11 +83,13 @@ namespace GrenadePinBite
 			if (curRing != null)
 			{
 				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
+				Vector3 prevFramePinPos = hand.IsThisTheRightHand ? rightPrevFramePinPos : leftPrevFramePinPos;
 
 				float curPinMouthDistance = Vector3.Distance(curRing.transform.position, mouthPos);
 				if (curPinMouthDistance < biteRadius.Value)
                 {
 					//checks if the hand is moving fast enough away from the mouth
+					float prevFramePinMouthDistance = hand.IsThisTheRightHand ? rightPrevFramePinMouthDistance : leftPrevFramePinMouthDistance;
 					if (prevFramePinPos != Vector3.zero && Vector3.Distance(curRing.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
 					{
 						//pin bitten and grenade pulled away from mouth, release pin
@@ -106,8 +107,17 @@ namespace GrenadePinBite
 						}
 					}
 				}
-				prevFramePinPos = curRing.transform.position;
-				prevFramePinMouthDistance = curPinMouthDistance;
+
+				if (hand.IsThisTheRightHand)
+				{
+					rightPrevFramePinPos = curRing.transform.position;
+					rightPrevFramePinMouthDistance = curPinMouthDistance;
+				}
+				else
+				{
+					leftPrevFramePinPos = curRing.transform.position;
+					leftPrevFramePinMouthDistance = curPinMouthDistance;
+				}
 			}
         }
 
@@ -153,8 +163,76 @@ namespace GrenadePinBite
 				loosePinInMouth = null;
 			}
 		}
+        #endregion
 
-		void SpitOutTooth(Vector3 _mouthPos)
+        #region sosig grenades
+        private void SosigWeaponPlayerInterface_UpdateInteraction(On.FistVR.SosigWeaponPlayerInterface.orig_UpdateInteraction orig, SosigWeaponPlayerInterface self, FVRViveHand hand)
+		{
+			orig(self, hand);
+
+			if (self.W.Type != SosigWeapon.SosigWeaponType.Grenade) return;
+
+			//get topmost unpulled ring in list
+			SosigGrenadePin? curPin = null;
+
+			if (self.W.Pin != null) curPin = self.W.Pin;
+
+			if (curPin != null)
+			{
+				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
+				Vector3 prevFramePinPos = hand.IsThisTheRightHand ? rightPrevFramePinPos : leftPrevFramePinPos;
+
+				float curPinMouthDistance = Vector3.Distance(curPin.transform.position, mouthPos);
+				if (curPinMouthDistance < biteRadius.Value)
+				{
+					//checks if the hand is moving fast enough away from the mouth
+					float prevFramePinMouthDistance = hand.IsThisTheRightHand ? rightPrevFramePinMouthDistance : leftPrevFramePinMouthDistance;
+					if (prevFramePinPos != Vector3.zero && Vector3.Distance(curPin.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
+					{
+						//pin bitten and grenade pulled away from mouth, release pin
+
+						///-----------------TODO: ADD SPOON CHECK BECAUSE THE SCRIPT LIBRARY HASN'T BEEN UPDATED FOR IT APPARENTLY
+						///-----------------UNSURE WHAT TO DO FOR NOW, WILL FIGURE IT OUT EVENTUALLY THO
+						if (!curPin.HasPinDetached() && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
+						{
+							hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);   //haptic feedback
+
+							//pin pull routine
+							curPin.Grenade.FuseGrenade();
+							curPin.PopSpoon();	//missing function???
+							self.W.Pin.ForceExpelPin();
+
+							Invoke("SpitOutSosigPin", UnityEngine.Random.Range(0.4f, 0.6f));
+
+							//tooth easter egg
+							if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
+							{
+								SpitOutTooth(mouthPos);
+							}
+						}
+					}
+				}
+
+				if (hand.IsThisTheRightHand)
+				{
+					rightPrevFramePinPos = curPin.transform.position;
+					rightPrevFramePinMouthDistance = curPinMouthDistance;
+				}
+                else
+                {
+					leftPrevFramePinPos = curPin.transform.position;
+					leftPrevFramePinMouthDistance = curPinMouthDistance;
+				}
+			}
+		}
+
+		void SpitOutSosigPin()
+        {
+
+        }
+        #endregion
+
+        void SpitOutTooth(Vector3 _mouthPos)
         {
 			GameObject tooth = Instantiate(toothPrefab, _mouthPos, UnityEngine.Random.rotation);
 			Rigidbody rb = tooth.GetComponent<Rigidbody>();
@@ -173,7 +251,12 @@ namespace GrenadePinBite
 
 			//reset all values
 			loosePinInMouth = null;
-			prevFramePinPos = Vector3.zero;
+
+			leftPrevFramePinPos = Vector3.zero;
+			leftPrevFramePinMouthDistance = 0f;
+
+			rightPrevFramePinPos = Vector3.zero;
+			rightPrevFramePinMouthDistance = 0f;
 		}
 	}
 }
