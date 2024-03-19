@@ -117,9 +117,11 @@ namespace GrenadePinBite
 
 			loosePinInMouth = _ring.Pin.GameObject;
 
-			//disable gravity until pin is spat out
 			_ring.m_hasPinDetached = true;
-			_ring.Pin.RootRigidbody = _ring.Pin.gameObject.AddComponent<Rigidbody>();
+
+			//disable gravity until pin is spat out
+			_ring.Pin.RootRigidbody = _ring.Pin.gameObject.GetComponent<Rigidbody>();
+			if (_ring.Pin.RootRigidbody == null) _ring.Pin.RootRigidbody = _ring.Pin.gameObject.AddComponent<Rigidbody>();
 			_ring.Pin.RootRigidbody.mass = 0.02f;
 			_ring.Pin.RootRigidbody.isKinematic = true;
 
@@ -214,16 +216,19 @@ namespace GrenadePinBite
 
 			GameObject mouthPin = Instantiate(_pin.PinDiscardGO, _pin.transform.position, _pin.transform.rotation);
 
-			Rigidbody rb = _pin.gameObject.GetComponent<Rigidbody>();
+			Rigidbody rb = mouthPin.gameObject.GetComponent<Rigidbody>();
 			if (rb == null)
             {
-				rb = rb = _pin.gameObject.AddComponent<Rigidbody>();
+				Debug.Log("Added rigidbody to sosig grenade pin");
+				rb = _pin.gameObject.AddComponent<Rigidbody>();
 			}
 			rb.mass = 0.02f;
 			rb.isKinematic = true;
 
 			loosePinInMouth = mouthPin;
 			_pin.transform.SetParent(GM.CurrentPlayerBody.Head);
+
+			_pin.enabled = false;
 		}
 
 		void SpitOutSosigPin()
