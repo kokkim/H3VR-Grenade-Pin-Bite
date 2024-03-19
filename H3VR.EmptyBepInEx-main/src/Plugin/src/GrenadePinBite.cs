@@ -27,7 +27,6 @@ namespace GrenadePinBite
 		public GrenadePinBite()
 		{
 			On.FistVR.PinnedGrenade.UpdateInteraction += PinnedGrenade_UpdateInteraction;
-
             On.FistVR.SosigWeaponPlayerInterface.UpdateInteraction += SosigWeaponPlayerInterface_UpdateInteraction;
 
 			On.FistVR.GM.InitScene += GM_InitScene;
@@ -83,40 +82,21 @@ namespace GrenadePinBite
 			if (curRing != null)
 			{
 				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
-				Vector3 prevFramePinPos = hand.IsThisTheRightHand ? rightPrevFramePinPos : leftPrevFramePinPos;
-
-				float curPinMouthDistance = Vector3.Distance(curRing.transform.position, mouthPos);
-				if (curPinMouthDistance < biteRadius.Value)
+				if (TryPullPin(hand, curRing, mouthPos))
                 {
-					//checks if the hand is moving fast enough away from the mouth
-					float prevFramePinMouthDistance = hand.IsThisTheRightHand ? rightPrevFramePinMouthDistance : leftPrevFramePinMouthDistance;
-					if (prevFramePinPos != Vector3.zero && Vector3.Distance(curRing.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
+					//pin bitten and grenade pulled away from mouth, release pin
+					if (!curRing.HasPinDetached() && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
 					{
-						//pin bitten and grenade pulled away from mouth, release pin
-						if (!curRing.HasPinDetached() && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
-						{
-							hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);	//haptic feedback
-							BiteOutPin(curRing);
-							Invoke("SpitOutPin", UnityEngine.Random.Range(0.4f, 0.6f));
+						hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);   //haptic feedback
+						BiteOutPin(curRing);
+						Invoke("SpitOutPin", UnityEngine.Random.Range(0.4f, 0.6f));
 
-							//tooth easter egg
-							if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
-							{
-								SpitOutTooth(mouthPos);
-							}
+						//tooth easter egg
+						if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
+						{
+							SpitOutTooth(mouthPos);
 						}
 					}
-				}
-
-				if (hand.IsThisTheRightHand)
-				{
-					rightPrevFramePinPos = curRing.transform.position;
-					rightPrevFramePinMouthDistance = curPinMouthDistance;
-				}
-				else
-				{
-					leftPrevFramePinPos = curRing.transform.position;
-					leftPrevFramePinMouthDistance = curPinMouthDistance;
 				}
 			}
         }
@@ -169,59 +149,37 @@ namespace GrenadePinBite
         private void SosigWeaponPlayerInterface_UpdateInteraction(On.FistVR.SosigWeaponPlayerInterface.orig_UpdateInteraction orig, SosigWeaponPlayerInterface self, FVRViveHand hand)
 		{
 			orig(self, hand);
-
 			if (self.W.Type != SosigWeapon.SosigWeaponType.Grenade) return;
 
-			//get topmost unpulled ring in list
 			SosigGrenadePin? curPin = null;
-
 			if (self.W.Pin != null) curPin = self.W.Pin;
 
 			if (curPin != null)
 			{
 				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
-				Vector3 prevFramePinPos = hand.IsThisTheRightHand ? rightPrevFramePinPos : leftPrevFramePinPos;
-
-				float curPinMouthDistance = Vector3.Distance(curPin.transform.position, mouthPos);
-				if (curPinMouthDistance < biteRadius.Value)
-				{
-					//checks if the hand is moving fast enough away from the mouth
-					float prevFramePinMouthDistance = hand.IsThisTheRightHand ? rightPrevFramePinMouthDistance : leftPrevFramePinMouthDistance;
-					if (prevFramePinPos != Vector3.zero && Vector3.Distance(curPin.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
+				if (TryPullPin(hand, curPin, mouthPos))
+                {
+					//pin bitten and grenade pulled away from mouth, release pin
+					if (!curPin.m_hasPoppedSpoon && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
 					{
-						//pin bitten and grenade pulled away from mouth, release pin
+						hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);   //haptic feedback
 
-						///-----------------TODO: ADD SPOON CHECK BECAUSE THE SCRIPT LIBRARY HASN'T BEEN UPDATED FOR IT APPARENTLY
-						///-----------------UNSURE WHAT TO DO FOR NOW, WILL FIGURE IT OUT EVENTUALLY THO
-						if (!curPin.HasPinDetached() && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
+						//pin pull routine
+						//curPin.Grenade.FuseGrenade();
+						//curPin.PopSpoon();
+						curPin.ForceExpelPin();
+
+						//spawns pin, adds rigidbody and parents to mouth
+						//WIP
+
+						Invoke("SpitOutSosigPin", UnityEngine.Random.Range(0.4f, 0.6f));
+
+						//tooth easter egg
+						if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
 						{
-							hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);   //haptic feedback
-
-							//pin pull routine
-							curPin.Grenade.FuseGrenade();
-							curPin.PopSpoon();	//missing function???
-							self.W.Pin.ForceExpelPin();
-
-							Invoke("SpitOutSosigPin", UnityEngine.Random.Range(0.4f, 0.6f));
-
-							//tooth easter egg
-							if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
-							{
-								SpitOutTooth(mouthPos);
-							}
+							SpitOutTooth(mouthPos);
 						}
 					}
-				}
-
-				if (hand.IsThisTheRightHand)
-				{
-					rightPrevFramePinPos = curPin.transform.position;
-					rightPrevFramePinMouthDistance = curPinMouthDistance;
-				}
-                else
-                {
-					leftPrevFramePinPos = curPin.transform.position;
-					leftPrevFramePinMouthDistance = curPinMouthDistance;
 				}
 			}
 		}
@@ -231,6 +189,39 @@ namespace GrenadePinBite
 
         }
         #endregion
+
+		//Tests if the pin is near the mouth and moving fast enough away from it
+		bool TryPullPin(FVRViveHand _hand, FVRInteractiveObject _curPin, Vector3 _mouthPos)
+        {
+			bool canPullPin = false;
+
+			Vector3 prevFramePinPos = _hand.IsThisTheRightHand ? rightPrevFramePinPos : leftPrevFramePinPos;
+
+			float curPinMouthDistance = Vector3.Distance(_curPin.transform.position, _mouthPos);
+			if (curPinMouthDistance < biteRadius.Value)
+			{
+				//checks if the hand is moving fast enough away from the mouth
+				float prevFramePinMouthDistance = _hand.IsThisTheRightHand ? rightPrevFramePinMouthDistance : leftPrevFramePinMouthDistance;
+				if (prevFramePinPos != Vector3.zero && Vector3.Distance(_curPin.transform.position, prevFramePinPos) > forceRequiredForPull.Value * Time.deltaTime && curPinMouthDistance > prevFramePinMouthDistance)
+				{
+					canPullPin = true;
+				}
+			}
+
+			//Update pin positions and distances
+			if (_hand.IsThisTheRightHand)
+			{
+				rightPrevFramePinPos = _curPin.transform.position;
+				rightPrevFramePinMouthDistance = curPinMouthDistance;
+			}
+			else
+			{
+				leftPrevFramePinPos = _curPin.transform.position;
+				leftPrevFramePinMouthDistance = curPinMouthDistance;
+			}
+
+			return canPullPin;
+		}
 
         void SpitOutTooth(Vector3 _mouthPos)
         {
