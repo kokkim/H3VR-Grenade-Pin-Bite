@@ -17,10 +17,11 @@ namespace GrenadePinBite
 		AudioEvent AudEvent_Spit = new();
 
 		public static ConfigEntry<float> biteRadius;
+		public static ConfigEntry<float> biteRadiusHeightOffset;
 		public static ConfigEntry<float> forceRequiredForPull;
 		public static ConfigEntry<float> pinPullToothChance;
 
-		FVRPhysicalObject? loosePinInMouth;  //loose pin inside mouth, not attached to a grenade
+		GameObject? loosePinInMouth;  //loose pin inside mouth, not attached to a grenade
 		Vector3 leftPrevFramePinPos = new(), rightPrevFramePinPos = new();
 		float leftPrevFramePinMouthDistance = new(), rightPrevFramePinMouthDistance = new();
 
@@ -50,6 +51,11 @@ namespace GrenadePinBite
 									 "Bite Radius",
 									 0.15f,
 									 "How close to your mouth the pin needs to be to be considered bitten");
+
+			biteRadiusHeightOffset = Config.Bind("Pin Bite Settings",
+												 "Bite Radius Height Offset",
+												 -0.1f,
+												 "How far down from your eye level the \"bite zone\" will be");
 
 			forceRequiredForPull = Config.Bind("Pin Bite Settings",
 											   "Force Required For Pull",
@@ -81,7 +87,7 @@ namespace GrenadePinBite
 
 			if (curRing != null)
 			{
-				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
+				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.1f;
 				if (TryPullPin(hand, curRing, mouthPos))
                 {
 					//pin bitten and grenade pulled away from mouth, release pin
@@ -89,7 +95,7 @@ namespace GrenadePinBite
 					{
 						hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);   //haptic feedback
 						BiteOutPin(curRing);
-						Invoke("SpitOutPin", UnityEngine.Random.Range(0.4f, 0.6f));
+						Invoke("SpitOutPin", 0.5f);
 
 						//tooth easter egg
 						if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
@@ -109,7 +115,7 @@ namespace GrenadePinBite
 				return;
 			}
 
-			loosePinInMouth = _ring.Pin;
+			loosePinInMouth = _ring.Pin.GameObject;
 
 			//disable gravity until pin is spat out
 			_ring.m_hasPinDetached = true;
@@ -131,15 +137,18 @@ namespace GrenadePinBite
 			if (loosePinInMouth != null)
 			{
 				loosePinInMouth.transform.SetParent(null);
-				loosePinInMouth.RootRigidbody.isKinematic = false;
 
-				Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.2f;
-				SM.PlayGenericSound(AudEvent_Spit, mouthPos);
+				Rigidbody rb = loosePinInMouth.GetComponent<Rigidbody>();
+				if (rb != null)
+                {
+					rb.isKinematic = false;
 
-				Rigidbody rb = loosePinInMouth.RootRigidbody;
-				rb.velocity = GM.CurrentPlayerBody.Head.forward * UnityEngine.Random.Range(1f, 2f) + UnityEngine.Random.onUnitSphere;
-				rb.angularVelocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1f, 5f);
+					Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.1f;
+					SM.PlayGenericSound(AudEvent_Spit, mouthPos);
 
+					rb.velocity = GM.CurrentPlayerBody.Head.forward * UnityEngine.Random.Range(1f, 2f) + UnityEngine.Random.onUnitSphere;
+					rb.angularVelocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1f, 5f);
+				}
 				loosePinInMouth = null;
 			}
 		}
@@ -160,19 +169,16 @@ namespace GrenadePinBite
 				if (TryPullPin(hand, curPin, mouthPos))
                 {
 					//pin bitten and grenade pulled away from mouth, release pin
-					if (!curPin.m_hasPoppedSpoon && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
+					if (!curPin.hasSpawned && loosePinInMouth == null && hand.Input.TriggerFloat > 0.6f)
 					{
 						hand.Buzz(hand.Buzzer.Buzz_BeginInteraction);   //haptic feedback
 
 						//pin pull routine
-						//curPin.Grenade.FuseGrenade();
-						//curPin.PopSpoon();
-						curPin.ForceExpelPin();
+						curPin.Grenade.FuseGrenade();
+						curPin.PopSpoon();
+						BiteOutSosigPin(curPin);
 
-						//spawns pin, adds rigidbody and parents to mouth
-						//WIP
-
-						Invoke("SpitOutSosigPin", UnityEngine.Random.Range(0.4f, 0.6f));
+						Invoke("SpitOutSosigPin", 0.5f);
 
 						//tooth easter egg
 						if (pinPullToothChance.Value > 0f && UnityEngine.Random.Range(0f, 1f) <= pinPullToothChance.Value)
@@ -184,10 +190,63 @@ namespace GrenadePinBite
 			}
 		}
 
+        void BiteOutSosigPin(SosigGrenadePin _pin)
+		{
+			if (_pin.hasSpawned)
+			{
+				Debug.LogError("Tried to pull an already pulled sosig grenade pin!");
+				return;
+			}
+
+			_pin.hasSpawned = true;
+			if (_pin.EnableOnPinPull != null)
+			{
+				_pin.EnableOnPinPull.SetActive(true);
+			}
+			if (_pin.DisableOnPinPull != null)
+			{
+				_pin.DisableOnPinPull.SetActive(false);
+			}
+			if (_pin.PinRend != null)
+			{
+				_pin.PinRend.enabled = false;
+			}
+
+			GameObject mouthPin = Instantiate(_pin.PinDiscardGO, _pin.transform.position, _pin.transform.rotation);
+
+			Rigidbody rb = _pin.gameObject.GetComponent<Rigidbody>();
+			if (rb == null)
+            {
+				rb = rb = _pin.gameObject.AddComponent<Rigidbody>();
+			}
+			rb.mass = 0.02f;
+			rb.isKinematic = true;
+
+			loosePinInMouth = mouthPin;
+			_pin.transform.SetParent(GM.CurrentPlayerBody.Head);
+		}
+
 		void SpitOutSosigPin()
         {
+			if (loosePinInMouth != null)
+			{
+				loosePinInMouth.transform.SetParent(null);
+				Rigidbody rb = loosePinInMouth.GetComponent<Rigidbody>();
 
-        }
+				if (rb != null)
+                {
+					rb.isKinematic = false;
+
+					Vector3 mouthPos = GM.CurrentPlayerBody.Head.transform.position + GM.CurrentPlayerBody.Head.transform.up * -0.1f;
+					SM.PlayGenericSound(AudEvent_Spit, mouthPos);
+
+					rb.velocity = GM.CurrentPlayerBody.Head.forward * UnityEngine.Random.Range(1f, 2f) + UnityEngine.Random.onUnitSphere;
+					rb.angularVelocity = UnityEngine.Random.onUnitSphere * UnityEngine.Random.Range(1f, 5f);
+				}
+
+				loosePinInMouth = null;
+			}
+		}
         #endregion
 
 		//Tests if the pin is near the mouth and moving fast enough away from it
